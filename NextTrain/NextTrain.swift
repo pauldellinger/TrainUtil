@@ -24,11 +24,11 @@ struct wmataPrediction: Codable {
 }
 struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), exampleText: "placeholder")
+        SimpleEntry(date: Date(), exampleText: "placeholder", predictions: [PredictionDisplay]())
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
-        let entry = SimpleEntry(date: Date(), exampleText: "snapshot")
+        let entry = SimpleEntry(date: Date(), exampleText: "snapshot", predictions: [PredictionDisplay]())
         completion(entry)
     }
 
@@ -75,21 +75,35 @@ struct Provider: TimelineProvider {
             let jsonDecoder = JSONDecoder()
             do{
                 let parsedJSON = try jsonDecoder.decode(wmataPredictionResponse.self, from: data)
-                var predictions = ""
+                let now = Date()
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "HH:mm:ss:"
+                var predictionsDisplay = [PredictionDisplay]()
                 for i in 0...parsedJSON.Trains.count - 1{
-                    let destination = parsedJSON.Trains[i].Destination
-                    let arrivalTime = parsedJSON.Trains[i].Min
-                    print(arrivalTime)
-                    predictions += destination + ": " + arrivalTime + "\n"
+                    let prediction = parsedJSON.Trains[i]
+                    // filter for silver line trains headed west
+                    if prediction.Line == "SV" && prediction.Group == "2"{
+                    let destination = prediction.Destination
+                        let arrivalTime: Int?
+                        switch prediction.Min {
+                        case "ARR":
+                            arrivalTime = 0
+                        case "BRD":
+                            arrivalTime = 0
+                        default:
+                            arrivalTime = Int(prediction.Min) ?? nil
+                        }
+                        predictionsDisplay.append(PredictionDisplay(destination: destination, relativeArrivalTime: arrivalTime))
+                        
+                    }
 
                 }
-                let entry = SimpleEntry(date: Date(), exampleText: predictions)
+                let entry = SimpleEntry(date: now, exampleText: "example", predictions: predictionsDisplay)
                 entries.append(entry)
             }catch{
                 print("Decoding error")
             }
-            let nextUpdateDate = Calendar.current.date(byAdding: .second, value: 15, to: Date())!
-            completionHandler(Timeline(entries: entries, policy: .after(nextUpdateDate)))
+            completionHandler(Timeline(entries: entries, policy: .never))
         }
         
         task.resume()
@@ -99,9 +113,29 @@ struct Provider: TimelineProvider {
     }
 }
 
+
+
+struct PredictionDisplay: Hashable {
+    var destination: String
+    var relativeArrivalTime: Int?
+    
+    func display()->String{
+        if relativeArrivalTime == 0 {
+            return destination + ": " + "ARR"
+        }
+        return destination + ": " + String(relativeArrivalTime!)
+    }
+}
 struct SimpleEntry: TimelineEntry {
     let date: Date
     let exampleText: String
+    let predictions: [PredictionDisplay]
+    
+    func displayLastUpdated()-> Text{
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "HH:mm:ss"
+        return Text(dateFormatter.string(from: self.date))
+    }
     
 }
 
@@ -114,7 +148,12 @@ struct NextTrainEntryView : View {
                 case .systemMedium: Text(entry.date, style: .time)
 //                case .systemMedium: GameStatusWithLastTurnResult(gameStatus)
 //                case .systemLarge: GameStatusWithStatistics(gameStatus)
-                default: Text(entry.exampleText)
+        default:
+            ForEach(entry.predictions, id: \.self) { prediction in
+            Text(prediction.display())
+            }
+            entry.displayLastUpdated()
+            
         }
         
     }
@@ -136,7 +175,7 @@ struct NextTrain: Widget {
 
 struct NextTrain_Previews: PreviewProvider {
     static var previews: some View {
-        NextTrainEntryView(entry: SimpleEntry(date: Date(), exampleText: "preview"))
+        NextTrainEntryView(entry: SimpleEntry(date: Date(), exampleText: "preview", predictions: [PredictionDisplay]()))
             .previewContext(WidgetPreviewContext(family: .systemSmall))
     }
 }
